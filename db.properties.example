@@ -1,0 +1,3 @@
+db.url=jdbc:mysql://localhost:3306/animal_db
+db.user=your_username
+db.password=your_password
