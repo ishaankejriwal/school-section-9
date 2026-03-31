@@ -1,7 +1,14 @@
+/*
+ * Ishaan Kejriwal - AP CSA
+ * File: Cat.java
+ * Description: Cat model implementation extending Animal.
+ * Date: 2026-03-31
+ */
+
 // Cat implementation that extends Animal and fulfills the Creature contract.
 public class Cat extends Animal implements Creature {
     private String color;
-    private boolean isAlive;
+    private final boolean isAlive;
 
     // Creates a cat with name, age, and color.
     public Cat(String name, int age, String color) {

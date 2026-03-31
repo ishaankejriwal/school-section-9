@@ -1,10 +1,17 @@
+/*
+ * Ishaan Kejriwal - AP CSA
+ * File: AnimalContainer.java
+ * Description: Container and helper operations for managing animal records.
+ * Date: 2026-03-31
+ */
+
 // Manages a named collection of animals with simple validation and lookup helpers.
 import java.util.ArrayList;
 import java.util.List;
 
 public class AnimalContainer {
-    private List<Animal> animals;
-    private String containerName;
+    private final List<Animal> animals;
+    private final String containerName;
 
     // Initializes the container with a name and an empty list.
     public AnimalContainer(String containerName) {

@@ -1,3 +1,10 @@
+/*
+ * Ishaan Kejriwal - AP CSA
+ * File: MySQLAnimalRepository.java
+ * Description: MySQL data access layer for animal records.
+ * Date: 2026-03-31
+ */
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -168,7 +175,7 @@ public class MySQLAnimalRepository {
                     + ")";
             statement.execute(createTableSql);
 
-            boolean hasIdColumn = false;
+            boolean hasIdColumn;
             try (ResultSet idColumnRs = statement.executeQuery("SHOW COLUMNS FROM animals LIKE 'id'")) {
                 hasIdColumn = idColumnRs.next();
             }
@@ -180,7 +187,7 @@ public class MySQLAnimalRepository {
 
             statement.execute("ALTER TABLE animals MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT");
 
-            boolean hasPrimaryKey = false;
+            boolean hasPrimaryKey;
             try (ResultSet pkRs = statement.executeQuery("SHOW INDEX FROM animals WHERE Key_name = 'PRIMARY'")) {
                 hasPrimaryKey = pkRs.next();
             }
@@ -209,6 +216,10 @@ public class MySQLAnimalRepository {
 
     // Resolves the stored type label from the concrete animal instance.
     private String resolveType(Animal animal) {
+        if (animal == null) {
+            return "Dog";
+        }
+
         if (animal instanceof Dog) {
             return "Dog";
         }
@@ -223,13 +234,13 @@ public class MySQLAnimalRepository {
 
     // Resolves the stored details value from subtype-specific fields.
     private String resolveDetails(Animal animal) {
-        if (animal instanceof Dog) {
-            String breed = ((Dog) animal).getBreed();
+        if (animal instanceof Dog dog) {
+            String breed = dog.getBreed();
             return isBlank(breed) ? "Mixed Breed" : breed.trim();
         }
 
-        if (animal instanceof Cat) {
-            String color = ((Cat) animal).getColor();
+        if (animal instanceof Cat cat) {
+            String color = cat.getColor();
             return isBlank(color) ? "Unknown" : color.trim();
         }
 

@@ -1,3 +1,12 @@
+/*
+ * Ishaan Kejriwal - AP CSA
+ * File: Main.java
+ * Description: Application entry point and startup flow.
+ * Date: 2026-03-31
+ */
+
+import java.sql.SQLException;
+
 // Entry point for bootstrapping data sources and launching the desktop UI.
 public class Main {
     public static void main (String[] args) {
@@ -31,9 +40,8 @@ public class Main {
             AnimalGUI gui = new AnimalGUI(animalContainer);
             gui.setVisible(true);
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             System.err.println("Critical error in main: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -61,7 +69,7 @@ public class Main {
 
             System.out.println("Loaded " + loaded + " record(s) from MySQL.");
             return true;
-        } catch (Exception e) {
+        } catch (SQLException | RuntimeException e) {
             System.err.println("MySQL load failed: " + e.getMessage());
             return false;
         }

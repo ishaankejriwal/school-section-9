@@ -1,8 +1,13 @@
+/*
+ * Ishaan Kejriwal - AP CSA
+ * File: AnimalGUI.java
+ * Description: Swing GUI for viewing and maintaining animal records.
+ * Date: 2026-03-31
+ */
+
 // Swing desktop interface for browsing and maintaining animal records.
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,12 +31,11 @@ public class AnimalGUI extends JFrame {
     private JLabel recordCounterLabel;
     private JPanel contentPanel;
     // In-memory and database-backed data references.
-    private AnimalContainer container;
-    private MySQLAnimalRepository mysqlRepository;
+    private final AnimalContainer container;
+    private final MySQLAnimalRepository mysqlRepository;
     private List<Animal> connectedAnimals;
     // UI and interaction state flags.
     private int clickCount;
-    private boolean isExpanded;
     private boolean isConnected;
     private boolean isInsertMode;
     private int currentIndex;
@@ -48,7 +52,6 @@ public class AnimalGUI extends JFrame {
         this.mysqlRepository = MySQLAnimalRepository.fromEnvironment();
         this.connectedAnimals = new ArrayList<>();
         this.clickCount = 0;
-        this.isExpanded = false;
         this.isConnected = false;
         this.isInsertMode = false;
         this.currentIndex = -1;
@@ -106,7 +109,7 @@ public class AnimalGUI extends JFrame {
                 }
             }
             
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             System.err.println("Could not load icon from " + filePath + ": " + e.getMessage());
         }
         
@@ -155,7 +158,7 @@ public class AnimalGUI extends JFrame {
             mainContainer.add(contentPanel, "expanded");
 
             setContentPane(mainContainer);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             System.err.println("Error initializing GUI: " + e.getMessage());
         }
     }
@@ -164,7 +167,6 @@ public class AnimalGUI extends JFrame {
     private void expandToFullGUI() {
         try {
             clickCount++;
-            isExpanded = true;
 
             // Build top-level menus.
             createMenuBar();
@@ -183,7 +185,6 @@ public class AnimalGUI extends JFrame {
     // Shows the full workspace immediately so navigation, CRUD, and connection controls are visible on launch.
     private void showExpandedLayoutOnStartup() {
         try {
-            isExpanded = true;
             createMenuBar();
             CardLayout cl = (CardLayout) getContentPane().getLayout();
             cl.show(getContentPane(), "expanded");
@@ -384,14 +385,11 @@ public class AnimalGUI extends JFrame {
         String safeType = typeText.trim().toLowerCase();
         String normalizedDetails = normalizeDetailsByType(typeText, detailsText);
 
-        Animal animal;
-        if ("dog".equals(safeType)) {
-            animal = new Dog(name, age, normalizedDetails);
-        } else if ("cat".equals(safeType)) {
-            animal = new Cat(name, age, normalizedDetails);
-        } else {
-            throw new IllegalArgumentException("Type must be Dog or Cat");
-        }
+        Animal animal = switch (safeType) {
+            case "dog" -> new Dog(name, age, normalizedDetails);
+            case "cat" -> new Cat(name, age, normalizedDetails);
+            default -> throw new IllegalArgumentException("Type must be Dog or Cat");
+        };
 
         animal.setId(id);
         return animal;
@@ -517,15 +515,21 @@ public class AnimalGUI extends JFrame {
                 return;
             }
 
-            String type = toDelete instanceof Dog ? "Dog" : (toDelete instanceof Cat ? "Cat" : toDelete.getSpecies());
+            String type = toDelete.getClass() == Dog.class
+                    ? "Dog"
+                    : (toDelete.getClass() == Cat.class ? "Cat" : toDelete.getSpecies());
             String details = normalizeDetailsByType(type, displaySpecialField.getText());
 
-            String message = "You are about to delete this record:\n\n"
-                    + "Name: " + toDelete.getName() + "\n"
-                    + "Age: " + toDelete.getAge() + "\n"
-                    + "Type: " + type + "\n"
-                    + "Details: " + details + "\n\n"
-                    + "Delete this record?";
+                String message = """
+                    You are about to delete this record:
+
+                    Name: %s
+                    Age: %d
+                    Type: %s
+                    Details: %s
+
+                    Delete this record?
+                    """.formatted(toDelete.getName(), toDelete.getAge(), type, details);
 
             int choice = JOptionPane.showConfirmDialog(
                     this,
@@ -633,7 +637,7 @@ public class AnimalGUI extends JFrame {
                 int targetIndex = currentIndex < 0 ? 0 : currentIndex;
                 showRecordAtIndex(targetIndex, "Connected");
             }
-        } catch (Exception e) {
+        } catch (java.sql.SQLException | RuntimeException e) {
             isConnected = false;
             isInsertMode = false;
             insertButton.setText("Insert");
@@ -677,15 +681,21 @@ public class AnimalGUI extends JFrame {
                 current.setSpecies(editedType);
             }
 
-            if (current instanceof Dog) {
-                String breed = editedDetails.replaceFirst("(?i)^breed\\s*:\\s*", "").trim();
-                if (!breed.isEmpty()) {
-                    ((Dog) current).setBreed(breed);
+            switch (current) {
+                case Dog dog -> {
+                    String breed = editedDetails.replaceFirst("(?i)^breed\\s*:\\s*", "").trim();
+                    if (!breed.isEmpty()) {
+                        dog.setBreed(breed);
+                    }
                 }
-            } else if (current instanceof Cat) {
-                String color = editedDetails.replaceFirst("(?i)^color\\s*:\\s*", "").trim();
-                if (!color.isEmpty()) {
-                    ((Cat) current).setColor(color);
+                case Cat cat -> {
+                    String color = editedDetails.replaceFirst("(?i)^color\\s*:\\s*", "").trim();
+                    if (!color.isEmpty()) {
+                        cat.setColor(color);
+                    }
+                }
+                default -> {
+                    // No subtype-specific editable details.
                 }
             }
 
@@ -835,7 +845,7 @@ public class AnimalGUI extends JFrame {
             statusLabel.setText("Status: Report exported to animal_report.txt");
             displayNameField.setText("Report Exported");
             displayTypeField.setText("File: animal_report.txt");
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             statusLabel.setText("Status: Error exporting report");
         }
     }
@@ -882,21 +892,25 @@ public class AnimalGUI extends JFrame {
 
         currentIndex = index;
         Animal current = animals.get(currentIndex);
-    displayIdField.setText(current.getId() == null ? "" : String.valueOf(current.getId()));
+        displayIdField.setText(current.getId() == null ? "" : String.valueOf(current.getId()));
         displayNameField.setText(current.getName());
         displayAgeField.setText(String.valueOf(current.getAge()));
         
         recordCounterLabel.setText("Record: " + (currentIndex + 1) + " of " + animals.size());
         
-        if (current instanceof Dog) {
-            displayTypeField.setText("Dog");
-            displaySpecialField.setText("Breed: " + ((Dog) current).getBreed());
-        } else if (current instanceof Cat) {
-            displayTypeField.setText("Cat");
-            displaySpecialField.setText("Color: " + ((Cat) current).getColor());
-        } else {
-            displayTypeField.setText("Unknown");
-            displaySpecialField.setText("Sound: " + current.makeSound());
+        switch (current) {
+            case Dog dog -> {
+                displayTypeField.setText("Dog");
+                displaySpecialField.setText("Breed: " + dog.getBreed());
+            }
+            case Cat cat -> {
+                displayTypeField.setText("Cat");
+                displaySpecialField.setText("Color: " + cat.getColor());
+            }
+            default -> {
+                displayTypeField.setText("Unknown");
+                displaySpecialField.setText("Sound: " + current.makeSound());
+            }
         }
         
         statusLabel.setText("Status: " + status);
@@ -977,117 +991,6 @@ public class AnimalGUI extends JFrame {
         }
     }
 
-    // Searches active records by name and displays the first match.
-    private void onSearchButtonClicked() {
-        try {
-            if (!ensureConnectedForRecordActions("Disconnected - connect to MySQL")) {
-                return;
-            }
-
-            String searchName = displayNameField.getText().trim();
-            if (searchName.isEmpty()) {
-                statusLabel.setText("Status: Please enter an animal name");
-                return;
-            }
-
-            List<Animal> animals = getActiveAnimals();
-            int foundIndex = -1;
-            for (int i = 0; i < animals.size(); i++) {
-                if (animals.get(i).getName().equalsIgnoreCase(searchName)) {
-                    foundIndex = i;
-                    break;
-                }
-            }
-
-            if (foundIndex >= 0) {
-                showRecordAtIndex(foundIndex, "Animal found");
-            } else {
-                displayNameField.setText("Not found");
-                statusLabel.setText("Status: Animal '" + searchName + "' not found in container.");
-            }
-        } catch (Exception e) {
-            statusLabel.setText("Status: Error searching animal");
-        }
-    }
-
-    // Adds a new dog record using external input fields.
-    private void onAddAnimalButtonClicked(JTextField animalNameField, JTextField animalAgeField) {
-        try {
-            if (!ensureConnectedForRecordActions("Disconnected - connect to MySQL")) {
-                return;
-            }
-
-            String name = animalNameField.getText().trim();
-            String ageStr = animalAgeField.getText().trim();
-
-            if (name.isEmpty() || ageStr.isEmpty()) {
-                statusLabel.setText("Status: Please enter name and age");
-                return;
-            }
-
-            int age = Integer.parseInt(ageStr);
-            Dog newDog = new Dog(name, age, "Mixed Breed");
-            connectedAnimals.add(newDog);
-
-            animalNameField.setText("");
-            animalAgeField.setText("");
-
-            currentIndex = connectedAnimals.size() - 1;
-            showRecordAtIndex(currentIndex, "New animal added successfully");
-        } catch (NumberFormatException e) {
-            statusLabel.setText("Status: Age must be a number");
-        } catch (Exception e) {
-            statusLabel.setText("Status: Error adding animal");
-        }
-    }
-
-    // Locates and shows the first dog record.
-    private void onFilterDogsButtonClicked() {
-        try {
-            if (!ensureConnectedForRecordActions("Disconnected - connect to MySQL")) {
-                return;
-            }
-
-            List<Animal> animals = getActiveAnimals();
-            int firstDogIndex = -1;
-            long dogCount = 0;
-            for (int i = 0; i < animals.size(); i++) {
-                if (animals.get(i) instanceof Dog) {
-                    dogCount++;
-                    if (firstDogIndex < 0) {
-                        firstDogIndex = i;
-                    }
-                }
-            }
-
-            if (firstDogIndex >= 0) {
-                showRecordAtIndex(firstDogIndex, "Showing first dog (" + dogCount + " total)");
-            } else {
-                displayNameField.setText("No dogs");
-                statusLabel.setText("Status: No dogs found");
-            }
-        } catch (Exception e) {
-            statusLabel.setText("Status: Error filtering dogs");
-        }
-    }
-
-    // Refreshes the current record view.
-    private void onRefreshButtonClicked() {
-        try {
-            if (!ensureConnectedForRecordActions("Disconnected - connect to MySQL")) {
-                return;
-            }
-
-            if (currentIndex < 0) {
-                showRecordAtIndex(0, "Data refreshed");
-            } else {
-                showRecordAtIndex(currentIndex, "Data refreshed");
-            }
-        } catch (Exception e) {
-            statusLabel.setText("Status: Error refreshing data");
-        }
-    }
-
     // Saves a backup snapshot of current records.
     private void onSaveData() {
         try {
@@ -1097,7 +1000,7 @@ public class AnimalGUI extends JFrame {
             }
             statusLabel.setText("Status: Data saved to animals_backup.dat");
             JOptionPane.showMessageDialog(this, "Data saved successfully!", "Save", JOptionPane.INFORMATION_MESSAGE);
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             statusLabel.setText("Status: Error saving data");
             JOptionPane.showMessageDialog(this, "Error saving data: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
@@ -1123,7 +1026,7 @@ public class AnimalGUI extends JFrame {
                 JOptionPane.showMessageDialog(this, "Backup file not found!", "Load", JOptionPane.WARNING_MESSAGE);
                 statusLabel.setText("Status: Backup file not found");
             }
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             statusLabel.setText("Status: Error loading data");
             JOptionPane.showMessageDialog(this, "Error loading data: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
@@ -1132,20 +1035,20 @@ public class AnimalGUI extends JFrame {
     // Displays the application help dialog.
     private void showHelpDialog() {
         try {
-            String helpText = "ANIMAL MANAGEMENT SYSTEM - HELP\n\n"
-                    + "BUTTONS:\n"
-                    + "- Hello World: Display container info with click counter\n"
-                    + "- Previous/Next: Navigate through records\n"
-                    + "- Search Animal: Find animal by name (enter name in search field)\n"
-                    + "- Add Animal: Add new dog to container\n"
-                    + "- Show Dogs: Filter and display all dogs\n"
-                    + "- Clear Display: Clear the display area\n"
-                    + "- Refresh Data: Reload current data\n\n"
-                    + "MENU OPTIONS:\n"
-                    + "- File: Save/Load data or exit application\n"
-                    + "- Tools: Sort, statistics, and export functions\n"
-                    + "- Help: Display this help menu\n"
-                    + "- About: Application information\n";
+                String helpText = """
+                    ANIMAL MANAGEMENT SYSTEM - HELP
+
+                    BUTTONS:
+                    - Hello World: Display container info with click counter
+                    - Previous/Next: Navigate through records
+                    - Clear Display: Clear the display area
+
+                    MENU OPTIONS:
+                    - File: Save/Load data or exit application
+                    - Tools: Sort, statistics, and export functions
+                    - Help: Display this help menu
+                    - About: Application information
+                    """;
 
             JTextArea helpArea = new JTextArea(helpText);
             helpArea.setEditable(false);
@@ -1154,7 +1057,7 @@ public class AnimalGUI extends JFrame {
             scrollPane.setPreferredSize(new Dimension(500, 400));
 
             JOptionPane.showMessageDialog(this, scrollPane, "Help Contents", JOptionPane.INFORMATION_MESSAGE);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             System.err.println("Error showing help: " + e.getMessage());
         }
     }
@@ -1162,22 +1065,26 @@ public class AnimalGUI extends JFrame {
     // Displays the application about dialog.
     private void showAboutDialog() {
         try {
-            String aboutText = "ANIMAL MANAGEMENT SYSTEM\n\n"
-                    + "Version: 2.0\n"
-                    + "Date: January 2026\n\n"
-                    + "A professional Java application demonstrating:\n"
-                    + "- Object-Oriented Programming principles\n"
-                    + "- Abstract classes and interfaces\n"
-                    + "- Exception handling with try-catch\n"
-                    + "- Java Swing GUI components\n"
-                    + "- Data management and persistence\n\n"
-                    + "Features:\n"
-                    + "✓ Multiple interactive buttons\n"
-                    + "✓ Text field input/output\n"
-                    + "✓ Menu bar with file operations\n"
-                    + "✓ Animal search and filtering\n"
-                    + "✓ Data export and statistics\n"
-                    + "✓ Professional error handling\n";
+                String aboutText = """
+                    ANIMAL MANAGEMENT SYSTEM
+
+                    Version: 2.0
+                    Date: January 2026
+
+                    A professional Java application demonstrating:
+                    - Object-Oriented Programming principles
+                    - Abstract classes and interfaces
+                    - Exception handling with try-catch
+                    - Java Swing GUI components
+                    - Data management and persistence
+
+                    Features:
+                    - Multiple interactive buttons
+                    - Text field input/output
+                    - Menu bar with file operations
+                    - Data export and statistics
+                    - Professional error handling
+                    """;
 
             JTextArea aboutArea = new JTextArea(aboutText);
             aboutArea.setEditable(false);
@@ -1186,31 +1093,8 @@ public class AnimalGUI extends JFrame {
             scrollPane.setPreferredSize(new Dimension(450, 350));
 
             JOptionPane.showMessageDialog(this, scrollPane, "About Application", JOptionPane.INFORMATION_MESSAGE);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             System.err.println("Error showing about dialog: " + e.getMessage());
-        }
-    }
-
-    // Shows runtime system information in the display area.
-    private void onShowInfoButtonClicked() {
-        try {
-            if (!ensureConnectedForRecordActions("Disconnected - connect to MySQL")) {
-                return;
-            }
-
-            StringBuilder info = new StringBuilder("=== System Information ===\n\n");
-            info.append(container.getContainerInfo()).append("\n");
-            info.append("Session Click Count: ").append(clickCount).append("\n\n");
-            displayNameField.setText("System Info");
-            displayTypeField.setText(String.valueOf(getActiveAnimals().size()) + " animals");
-
-            if (currentIndex < 0) {
-                showRecordAtIndex(0, "System information displayed");
-            } else {
-                showRecordAtIndex(currentIndex, "System information displayed");
-            }
-        } catch (Exception e) {
-            statusLabel.setText("Status: Error displaying info");
         }
     }
 
@@ -1237,7 +1121,7 @@ public class AnimalGUI extends JFrame {
             displaySpecialField.setText("Range: " + (maxAge - minAge));
             
             statusLabel.setText("Status: Age analysis completed");
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             statusLabel.setText("Status: Error in age analysis");
         }
     }
@@ -1286,7 +1170,7 @@ public class AnimalGUI extends JFrame {
             displaySpecialField.setText("Status: " + (errors == 0 && warnings == 0 ? "Valid" : "Issues found"));
             
             statusLabel.setText("Status: Data validation complete - " + errors + " errors, " + warnings + " warnings");
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             statusLabel.setText("Status: Error validating data");
         }
     }
