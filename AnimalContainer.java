@@ -32,26 +32,28 @@ public class AnimalContainer {
         }
     }
 
-    // Removes an animal by name and reports when no match is found.
-    public void removeAnimal(String name) {
+    // Removes an observation by UUID and reports when no match is found.
+    public void removeAnimal(String observationUuid) {
         try {
-            boolean removed = animals.removeIf(a -> a.getName().equals(name));
+            boolean removed = animals.removeIf(a -> a.getObservationUuid() != null
+                    && a.getObservationUuid().toString().equals(observationUuid));
             if (!removed) {
-                throw new IllegalArgumentException("Animal with name '" + name + "' not found");
+                throw new IllegalArgumentException("Observation with UUID '" + observationUuid + "' not found");
             }
-            System.out.println("Successfully removed: " + name);
+            System.out.println("Successfully removed observation: " + observationUuid);
         } catch (IllegalArgumentException e) {
             System.err.println("Error removing animal: " + e.getMessage());
         }
     }
 
-    // Finds an animal by name and returns null when not found.
-    public Animal getAnimal(String name) {
+    // Finds an observation by UUID and returns null when not found.
+    public Animal getAnimal(String observationUuid) {
         try {
             return animals.stream()
-                    .filter(a -> a.getName().equals(name))
+                    .filter(a -> a.getObservationUuid() != null
+                            && a.getObservationUuid().toString().equals(observationUuid))
                     .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("Animal not found: " + name));
+                    .orElseThrow(() -> new IllegalArgumentException("Observation not found: " + observationUuid));
         } catch (IllegalArgumentException e) {
             System.err.println("Error retrieving animal: " + e.getMessage());
             return null;
@@ -64,14 +66,26 @@ public class AnimalContainer {
             if (animals.isEmpty()) {
                 throw new IllegalStateException("No animals in container");
             }
-            StringBuilder sb = new StringBuilder("Animals in " + containerName + ":\n");
+            StringBuilder sb = new StringBuilder("Observations in " + containerName + ":\n");
             for (Animal animal : animals) {
-                sb.append("- ").append(animal.getName()).append(" (").append(animal.getAge()).append(" years old)\n");
+                sb.append("- ")
+                        .append(animal.getAnimalType())
+                        .append(" @ (")
+                        .append(animal.getLatitude())
+                        .append(", ")
+                        .append(animal.getLongitude())
+                        .append(") at ")
+                        .append(animal.getObservedAt())
+                        .append(" | duration=")
+                        .append(animal.getDurationMinutes())
+                        .append(" min | revisited=")
+                        .append(animal.isRevisited())
+                        .append("\n");
             }
             return sb.toString();
         } catch (IllegalStateException e) {
             System.err.println("Error displaying animals: " + e.getMessage());
-            return "No animals available";
+            return "No observations available";
         }
     }
 
@@ -82,6 +96,6 @@ public class AnimalContainer {
 
     // Returns a short container summary.
     public String getContainerInfo() {
-        return "Container: " + containerName + " | Total Animals: " + animals.size();
+        return "Container: " + containerName + " | Total Observations: " + animals.size();
     }
 }

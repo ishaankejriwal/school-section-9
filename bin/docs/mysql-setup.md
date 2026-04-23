@@ -1,6 +1,6 @@
-# MySQL Setup for Animal Records
+# MySQL Setup for Animal Observation Records
 
-This project can load records from MySQL at startup.
+This project stores one observation per row and can load records from MySQL at startup.
 
 Config sources (priority order):
 1. Environment variables (`DB_URL`, `DB_USER`, `DB_PASSWORD`)
@@ -14,17 +14,27 @@ USE animal_db;
 
 CREATE TABLE IF NOT EXISTS animals (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    age INT NOT NULL,
-    type VARCHAR(20) NOT NULL,
-    details VARCHAR(120) NULL
+    animal_type VARCHAR(80) NOT NULL,
+    latitude FLOAT NOT NULL,
+    longitude FLOAT NOT NULL,
+    observed_at DATETIME NOT NULL,
+    duration_minutes INT NOT NULL,
+    observation_uuid CHAR(36) NOT NULL UNIQUE,
+    revisited BOOLEAN NOT NULL DEFAULT FALSE
 );
 
-INSERT INTO animals (name, age, type, details) VALUES
-('Buddy', 5, 'dog', 'Golden Retriever'),
-('Whiskers', 3, 'cat', 'Black'),
-('Max', 7, 'dog', 'German Shepherd'),
-('Luna', 2, 'cat', 'White');
+INSERT INTO animals (
+    animal_type,
+    latitude,
+    longitude,
+    observed_at,
+    duration_minutes,
+    observation_uuid,
+    revisited
+) VALUES
+('Dog', 40.7128, -74.0060, '2026-04-22 07:15:00', 45, UUID(), TRUE),
+('Cat', 40.7132, -74.0051, '2026-04-22 09:40:00', 30, UUID(), FALSE),
+('Dog', 40.7128, -74.0060, '2026-04-22 16:20:00', 20, UUID(), TRUE);
 ```
 
 ## 2) Configure credentials
@@ -55,3 +65,12 @@ java -cp ".;lib/*" Main
 ```
 
 If DB config is missing or table is empty, the app falls back to in-memory sample records.
+
+## Field Meaning
+
+- `animal_type`: species/type label (`VARCHAR`)
+- `latitude` / `longitude`: observation coordinates (`FLOAT`)
+- `observed_at`: observation timestamp (`DATETIME`)
+- `duration_minutes`: stay duration in minutes (`INT`)
+- `observation_uuid`: unique observation identifier (`CHAR(36)` UUID text)
+- `revisited`: whether this spot was revisited (`BOOLEAN`)

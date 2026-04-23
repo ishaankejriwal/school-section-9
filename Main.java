@@ -6,34 +6,58 @@
  */
 
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.util.UUID;
 
 // Entry point for bootstrapping data sources and launching the desktop UI.
 public class Main {
     public static void main (String[] args) {
         try {
             // Create the in-memory container used by both console output and GUI.
-            AnimalContainer animalContainer = new AnimalContainer("Pet Sanctuary");
+            AnimalContainer animalContainer = new AnimalContainer("Daily Habitat Tracker");
 
             // Load animals from MySQL when credentials are available.
             boolean loadedFromDatabase = loadAnimalsFromMySQL(animalContainer);
 
             // Use sample data when the database is unavailable or empty.
             if (!loadedFromDatabase) {
-                animalContainer.addAnimal(new Dog("Buddy", 5, "Golden Retriever"));
-                animalContainer.addAnimal(new Cat("Whiskers", 3, "Black"));
-                animalContainer.addAnimal(new Dog("Max", 7, "German Shepherd"));
-                animalContainer.addAnimal(new Cat("Luna", 2, "White"));
+                animalContainer.addAnimal(new Animal(
+                    "Dog",
+                    40.7128f,
+                    -74.0060f,
+                    LocalDateTime.now().minusHours(6),
+                    45,
+                    UUID.randomUUID(),
+                    true
+                ));
+                animalContainer.addAnimal(new Animal(
+                    "Cat",
+                    40.7132f,
+                    -74.0051f,
+                    LocalDateTime.now().minusHours(4),
+                    30,
+                    UUID.randomUUID(),
+                    false
+                ));
+                animalContainer.addAnimal(new Animal(
+                    "Dog",
+                    40.7128f,
+                    -74.0060f,
+                    LocalDateTime.now().minusHours(1),
+                    20,
+                    UUID.randomUUID(),
+                    true
+                ));
             }
 
             // Print a quick summary in the console for immediate feedback.
-            System.out.println("===== Animal Management System =====\n");
+            System.out.println("===== Animal Observation Tracking =====\n");
             System.out.println(animalContainer.getContainerInfo() + "\n");
             System.out.println(animalContainer.displayAllAnimals());
 
-            // Show polymorphic behavior by calling subclass-specific sounds.
-            System.out.println("===== Animal Sounds =====");
+            System.out.println("===== Observation UUIDs =====");
             for (Animal animal : animalContainer.getAllAnimals()) {
-                System.out.println(animal.getName() + " says: " + animal.makeSound());
+                System.out.println(animal.getAnimalType() + " -> " + animal.getObservationUuid());
             }
 
             // Start the Swing application window.

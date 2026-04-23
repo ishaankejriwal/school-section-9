@@ -5,17 +5,20 @@
  * Date: 2026-03-31
  */
 
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.util.Properties;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
+import java.util.UUID;
 
 public class MySQLAnimalRepository {
     // JDBC connection URL.
@@ -63,7 +66,8 @@ public class MySQLAnimalRepository {
     // Reads all animal rows from MySQL and maps them into domain objects.
     public List<Animal> fetchAllAnimals() throws SQLException {
         List<Animal> animals = new ArrayList<>();
-        String sql = "SELECT id, name, age, type, details FROM animals ORDER BY id";
+        String sql = "SELECT id, animal_type, latitude, longitude, observed_at, duration_minutes, observation_uuid, revisited "
+            + "FROM animals ORDER BY observed_at ASC, id ASC";
 
         ensureMySqlDriverLoaded();
 
@@ -73,12 +77,25 @@ public class MySQLAnimalRepository {
 
             while (resultSet.next()) {
                 int id = resultSet.getInt("id");
-                String name = resultSet.getString("name");
-                int age = resultSet.getInt("age");
-                String type = resultSet.getString("type");
-                String details = resultSet.getString("details");
+                String animalType = resultSet.getString("animal_type");
+                float latitude = resultSet.getFloat("latitude");
+                float longitude = resultSet.getFloat("longitude");
+                Timestamp observedAtTs = resultSet.getTimestamp("observed_at");
+                LocalDateTime observedAt = observedAtTs == null ? LocalDateTime.now() : observedAtTs.toLocalDateTime();
+                int durationMinutes = resultSet.getInt("duration_minutes");
+                String uuidText = resultSet.getString("observation_uuid");
+                UUID observationUuid = isBlank(uuidText) ? UUID.randomUUID() : UUID.fromString(uuidText);
+                boolean revisited = resultSet.getBoolean("revisited");
 
-                Animal animal = mapRowToAnimal(name, age, type, details);
+                Animal animal = new Animal(
+                        animalType,
+                        latitude,
+                        longitude,
+                        observedAt,
+                        durationMinutes,
+                        observationUuid,
+                        revisited
+                );
                 animal.setId(id);
                 animals.add(animal);
             }
@@ -91,17 +108,25 @@ public class MySQLAnimalRepository {
     public Animal insertAnimal(Animal animal) throws SQLException {
         ensureMySqlDriverLoaded();
 
-        String sql = "INSERT INTO animals (name, age, type, details) VALUES (?, ?, ?, ?)";
+        String sql = "INSERT INTO animals (animal_type, latitude, longitude, observed_at, duration_minutes, observation_uuid, revisited) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?)";
         try (Connection connection = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
              PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
-            String type = resolveType(animal);
-            String details = resolveDetails(animal);
+            if (animal.getObservationUuid() == null) {
+                animal.setObservationUuid(UUID.randomUUID());
+            }
+            if (animal.getObservedAt() == null) {
+                animal.setObservedAt(LocalDateTime.now());
+            }
 
-            statement.setString(1, animal.getName());
-            statement.setInt(2, animal.getAge());
-            statement.setString(3, type);
-            statement.setString(4, details);
+            statement.setString(1, animal.getAnimalType());
+            statement.setFloat(2, animal.getLatitude());
+            statement.setFloat(3, animal.getLongitude());
+            statement.setTimestamp(4, Timestamp.valueOf(animal.getObservedAt()));
+            statement.setInt(5, animal.getDurationMinutes());
+            statement.setString(6, animal.getObservationUuid().toString());
+            statement.setBoolean(7, animal.isRevisited());
             int rows = statement.executeUpdate();
             if (rows == 0) {
                 throw new SQLException("Insert did not affect any rows");
@@ -125,18 +150,26 @@ public class MySQLAnimalRepository {
 
         ensureMySqlDriverLoaded();
 
-        String sql = "UPDATE animals SET name = ?, age = ?, type = ?, details = ? WHERE id = ?";
+        String sql = "UPDATE animals SET animal_type = ?, latitude = ?, longitude = ?, observed_at = ?, "
+                + "duration_minutes = ?, observation_uuid = ?, revisited = ? WHERE id = ?";
         try (Connection connection = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
              PreparedStatement statement = connection.prepareStatement(sql)) {
 
-            String type = resolveType(animal);
-            String details = resolveDetails(animal);
+            if (animal.getObservationUuid() == null) {
+                animal.setObservationUuid(UUID.randomUUID());
+            }
+            if (animal.getObservedAt() == null) {
+                animal.setObservedAt(LocalDateTime.now());
+            }
 
-            statement.setString(1, animal.getName());
-            statement.setInt(2, animal.getAge());
-            statement.setString(3, type);
-            statement.setString(4, details);
-            statement.setInt(5, animal.getId());
+            statement.setString(1, animal.getAnimalType());
+            statement.setFloat(2, animal.getLatitude());
+            statement.setFloat(3, animal.getLongitude());
+            statement.setTimestamp(4, Timestamp.valueOf(animal.getObservedAt()));
+            statement.setInt(5, animal.getDurationMinutes());
+            statement.setString(6, animal.getObservationUuid().toString());
+            statement.setBoolean(7, animal.isRevisited());
+            statement.setInt(8, animal.getId());
             int rows = statement.executeUpdate();
             if (rows == 0) {
                 throw new SQLException("No record updated for id=" + animal.getId());
@@ -168,83 +201,54 @@ public class MySQLAnimalRepository {
 
             String createTableSql = "CREATE TABLE IF NOT EXISTS animals ("
                     + "id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, "
-                    + "name VARCHAR(100) NOT NULL, "
-                    + "age INT NOT NULL, "
-                    + "type VARCHAR(20) NOT NULL, "
-                    + "details VARCHAR(120) NULL"
+                    + "animal_type VARCHAR(80) NOT NULL, "
+                    + "latitude FLOAT NOT NULL, "
+                    + "longitude FLOAT NOT NULL, "
+                    + "observed_at DATETIME NOT NULL, "
+                    + "duration_minutes INT NOT NULL, "
+                    + "observation_uuid CHAR(36) NOT NULL UNIQUE, "
+                    + "revisited BOOLEAN NOT NULL DEFAULT FALSE"
                     + ")";
             statement.execute(createTableSql);
 
-            boolean hasIdColumn;
-            try (ResultSet idColumnRs = statement.executeQuery("SHOW COLUMNS FROM animals LIKE 'id'")) {
-                hasIdColumn = idColumnRs.next();
-            }
+            ensureColumnExists(statement, "animal_type", "VARCHAR(80) NOT NULL");
+            ensureColumnExists(statement, "latitude", "FLOAT NOT NULL DEFAULT 0");
+            ensureColumnExists(statement, "longitude", "FLOAT NOT NULL DEFAULT 0");
+            ensureColumnExists(statement, "observed_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+            ensureColumnExists(statement, "duration_minutes", "INT NOT NULL DEFAULT 0");
+            ensureColumnExists(statement, "observation_uuid", "CHAR(36) NULL");
+            ensureColumnExists(statement, "revisited", "BOOLEAN NOT NULL DEFAULT FALSE");
 
-            if (!hasIdColumn) {
-                statement.execute("ALTER TABLE animals ADD COLUMN id INT NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST");
-                return;
-            }
+            statement.execute("UPDATE animals SET observation_uuid = UUID() WHERE observation_uuid IS NULL OR observation_uuid = ''");
+            statement.execute("ALTER TABLE animals MODIFY COLUMN observation_uuid CHAR(36) NOT NULL");
 
-            statement.execute("ALTER TABLE animals MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT");
-
-            boolean hasPrimaryKey;
-            try (ResultSet pkRs = statement.executeQuery("SHOW INDEX FROM animals WHERE Key_name = 'PRIMARY'")) {
-                hasPrimaryKey = pkRs.next();
-            }
-
-            if (!hasPrimaryKey) {
-                statement.execute("ALTER TABLE animals ADD PRIMARY KEY (id)");
+            if (!uniqueIndexExists(connection, "animals", "ux_animals_observation_uuid")) {
+                statement.execute("CREATE UNIQUE INDEX ux_animals_observation_uuid ON animals (observation_uuid)");
             }
         }
     }
 
-    // Maps a database row to the matching domain subtype.
-    private Animal mapRowToAnimal(String name, int age, String type, String details) {
-        String safeType = type == null ? "" : type.trim().toLowerCase();
-        String safeDetails = details == null || details.isBlank() ? "Unknown" : details.trim();
-
-        if ("dog".equals(safeType)) {
-            return new Dog(name, age, safeDetails);
+    // Adds a missing column for incremental schema upgrades.
+    private void ensureColumnExists(Statement statement, String columnName, String columnSql) throws SQLException {
+        boolean exists;
+        try (ResultSet rs = statement.executeQuery("SHOW COLUMNS FROM animals LIKE '" + columnName + "'")) {
+            exists = rs.next();
         }
 
-        if ("cat".equals(safeType)) {
-            return new Cat(name, age, safeDetails);
+        if (!exists) {
+            statement.execute("ALTER TABLE animals ADD COLUMN " + columnName + " " + columnSql);
         }
-
-        return new Dog(name, age, "Mixed Breed");
     }
 
-    // Resolves the stored type label from the concrete animal instance.
-    private String resolveType(Animal animal) {
-        if (animal == null) {
-            return "Dog";
+    // Checks whether an index already exists on the given table.
+    private boolean uniqueIndexExists(Connection connection, String tableName, String indexName) throws SQLException {
+        String sql = "SHOW INDEX FROM " + tableName + " WHERE Key_name = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, indexName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
         }
-
-        if (animal instanceof Dog) {
-            return "Dog";
-        }
-
-        if (animal instanceof Cat) {
-            return "Cat";
-        }
-
-        String species = animal.getSpecies();
-        return isBlank(species) ? "Dog" : species.trim();
-    }
-
-    // Resolves the stored details value from subtype-specific fields.
-    private String resolveDetails(Animal animal) {
-        if (animal instanceof Dog dog) {
-            String breed = dog.getBreed();
-            return isBlank(breed) ? "Mixed Breed" : breed.trim();
-        }
-
-        if (animal instanceof Cat cat) {
-            String color = cat.getColor();
-            return isBlank(color) ? "Unknown" : color.trim();
-        }
-
-        return "Unknown";
     }
 
     // Returns true when a text value is null or blank.

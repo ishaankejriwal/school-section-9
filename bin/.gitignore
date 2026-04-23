@@ -8,6 +8,7 @@ target/
 *.log
 .DS_Store
 Thumbs.db
+.jar
 
 # IDE metadata
 .idea/

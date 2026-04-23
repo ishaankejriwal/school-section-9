@@ -1,9 +1,9 @@
-# Animal Management System (Java + Swing + MySQL)
+# Animal Observation Tracker (Java + Swing + MySQL)
 
-A desktop Java application for managing animal records with:
-- Swing UI for browsing and CRUD operations
+A desktop Java application for tracking where animals repeatedly settle during the day:
+- Swing UI for browsing and CRUD operations on observation records
 - Optional MySQL persistence
-- Automatic fallback to in-memory sample data
+- Automatic fallback to in-memory sample observations
 
 ## Project Structure
 
@@ -53,13 +53,24 @@ Run:
 java -cp ".;lib/*" Main
 ```
 
+## Observation Data Model
+
+Each row represents one observation and includes:
+- `animal_type` (`VARCHAR`)
+- `latitude` (`FLOAT`)
+- `longitude` (`FLOAT`)
+- `observed_at` (`DATETIME`)
+- `duration_minutes` (`INT`)
+- `observation_uuid` (`UUID` stored as `CHAR(36)`)
+- `revisited` (`BOOLEAN`)
+
 ## Database Configuration
 
 1. Copy `db.properties.example` to `db.properties`
 2. Add your real credentials
 3. Follow the setup guide in `docs/mysql-setup.md`
 
-If MySQL credentials are missing/unavailable, the app still runs with sample in-memory records.
+If MySQL credentials are missing/unavailable, the app still runs with sample in-memory observation records.
 
 ## GitHub Readiness Notes
 
