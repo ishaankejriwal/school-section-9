@@ -10,12 +10,20 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GradientPaint;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.RenderingHints;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import javax.swing.BorderFactory;
@@ -28,6 +36,8 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.SwingConstants;
+import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
@@ -210,7 +220,7 @@ public class AnimalGUI extends JFrame {
 
         mainPanel.add(formPanel, BorderLayout.CENTER);
 
-        JPanel controlsPanel = new JPanel(new GridLayout(3, 1, 0, 8));
+        JPanel controlsPanel = new JPanel(new GridLayout(4, 1, 0, 8));
         controlsPanel.setOpaque(false);
 
         JPanel navigationPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
@@ -259,9 +269,17 @@ public class AnimalGUI extends JFrame {
         connectButton.addActionListener(e -> onConnectionToggleClicked());
         connectionPanel.add(connectButton);
 
+        JPanel mappingPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        mappingPanel.setOpaque(false);
+        JButton mappingButton = createStyledButton("Mapping", new Color(47, 134, 130), new Color(59, 156, 151), new Color(40, 113, 110));
+        mappingButton.setPreferredSize(new Dimension(220, 34));
+        mappingButton.addActionListener(e -> onMappingClicked());
+        mappingPanel.add(mappingButton);
+
         controlsPanel.add(navigationPanel);
         controlsPanel.add(crudPanel);
         controlsPanel.add(connectionPanel);
+        controlsPanel.add(mappingPanel);
 
         mainPanel.add(controlsPanel, BorderLayout.SOUTH);
         setContentPane(mainPanel);
@@ -832,6 +850,368 @@ public class AnimalGUI extends JFrame {
         } catch (java.sql.SQLException | RuntimeException e) {
             statusLabel.setText("Status: Delete failed - " + e.getMessage());
             statusLabel.setForeground(new Color(226, 117, 117));
+        }
+    }
+
+    // Opens an animated globe view and plots animal observations by latitude/longitude.
+    private void onMappingClicked() {
+        List<Animal> sourceAnimals;
+        if (isConnected) {
+            sourceAnimals = new ArrayList<>(connectedAnimals);
+        } else {
+            sourceAnimals = container.getAllAnimals();
+        }
+
+        if (sourceAnimals.isEmpty()) {
+            statusLabel.setText("Status: No observations available for mapping");
+            statusLabel.setForeground(WARNING);
+            return;
+        }
+
+        JFrame mapFrame = new JFrame("3D Observation Mapping");
+        mapFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        mapFrame.setSize(760, 620);
+        mapFrame.setLocationRelativeTo(this);
+
+        JPanel wrapper = new JPanel(new BorderLayout(0, 8));
+        wrapper.setBorder(new EmptyBorder(8, 8, 8, 8));
+        wrapper.setBackground(darkMode ? BG_PRIMARY : LIGHT_BG_PRIMARY);
+
+        JLabel subtitle = new JLabel("Drag to rotate. Dots represent observations by latitude/longitude.");
+        subtitle.setFont(BODY_FONT);
+        subtitle.setForeground(darkMode ? TEXT_MUTED : LIGHT_TEXT_MUTED);
+        wrapper.add(subtitle, BorderLayout.NORTH);
+
+        GlobePanel globePanel = new GlobePanel(sourceAnimals, darkMode);
+        wrapper.add(globePanel, BorderLayout.CENTER);
+
+        JPanel mapControls = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 2));
+        mapControls.setOpaque(false);
+        JButton zoomOutButton = createStyledButton("-");
+        JButton zoomResetButton = createStyledButton("Reset");
+        JButton zoomInButton = createStyledButton("+");
+
+        zoomOutButton.setPreferredSize(new Dimension(52, 30));
+        zoomResetButton.setPreferredSize(new Dimension(82, 30));
+        zoomInButton.setPreferredSize(new Dimension(52, 30));
+
+        JLabel zoomHint = new JLabel("Zoom");
+        zoomHint.setHorizontalAlignment(SwingConstants.CENTER);
+        zoomHint.setFont(BODY_FONT);
+        zoomHint.setForeground(darkMode ? TEXT_MUTED : LIGHT_TEXT_MUTED);
+
+        zoomOutButton.addActionListener(e -> globePanel.adjustZoom(-0.10));
+        zoomInButton.addActionListener(e -> globePanel.adjustZoom(0.10));
+        zoomResetButton.addActionListener(e -> globePanel.resetZoom());
+
+        mapControls.add(zoomHint);
+        mapControls.add(zoomOutButton);
+        mapControls.add(zoomResetButton);
+        mapControls.add(zoomInButton);
+        wrapper.add(mapControls, BorderLayout.SOUTH);
+
+        mapFrame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                globePanel.stopAnimation();
+            }
+        });
+
+        mapFrame.setContentPane(wrapper);
+        mapFrame.setVisible(true);
+
+        statusLabel.setText("Status: Opened 3D mapping view");
+        statusLabel.setForeground(ACCENT);
+    }
+
+    // Lightweight 3D globe renderer using projected points and a rotation animation.
+    private static final class GlobePanel extends JPanel {
+        private final List<Animal> animals;
+        private final boolean darkMode;
+        private final Timer spinTimer;
+        private double rotationY;
+        private double zoom;
+        private int lastMouseX;
+
+        // Coarse continent silhouettes using lat/lon points for a stylized in-app map.
+        private static final double[][][] CONTINENT_SHAPES = {
+            {
+                {72, -170}, {66, -140}, {62, -120}, {55, -105}, {47, -125}, {38, -122},
+                {27, -112}, {23, -98}, {19, -90}, {14, -84}, {23, -80}, {31, -79},
+                {42, -72}, {51, -66}, {60, -74}, {68, -98}, {72, -130}
+            },
+            {
+                {12, -81}, {6, -77}, {-3, -76}, {-14, -72}, {-24, -67}, {-34, -62},
+                {-47, -70}, {-53, -73}, {-53, -59}, {-44, -50}, {-31, -45}, {-14, -50},
+                {-2, -58}, {6, -66}
+            },
+            {
+                {71, -10}, {66, 10}, {58, 21}, {56, 34}, {50, 30}, {45, 12}, {43, 0},
+                {39, -4}, {37, 8}, {36, 16}, {32, 23}, {30, 35}, {31, 43}, {22, 50},
+                {16, 44}, {10, 43}, {2, 36}, {-8, 35}, {-16, 31}, {-28, 27}, {-34, 20},
+                {-34, 12}, {-24, 12}, {-9, 15}, {5, 5}, {19, -14}, {28, -16}, {39, -9},
+                {52, -12}, {60, -20}
+            },
+            {
+                {76, 43}, {74, 70}, {70, 100}, {58, 134}, {49, 145}, {35, 139}, {27, 121},
+                {21, 106}, {11, 102}, {8, 86}, {19, 74}, {26, 66}, {31, 52}, {42, 43},
+                {54, 50}, {63, 60}, {72, 72}, {78, 92}, {77, 115}, {72, 132}, {68, 150},
+                {59, 162}, {52, 153}, {49, 127}, {38, 115}, {30, 124}, {24, 138}, {14, 146},
+                {8, 130}, {6, 110}, {6, 95}, {17, 79}, {30, 68}, {41, 58}, {57, 60}, {70, 45}
+            },
+            {
+                {-10, 114}, {-18, 116}, {-27, 132}, {-38, 145}, {-42, 154}, {-33, 152},
+                {-25, 146}, {-19, 139}, {-15, 128}
+            }
+        };
+
+        // A few stylized "country boundary" strokes to improve visual detail.
+        private static final double[][][] COUNTRY_STROKES = {
+            {{55, -130}, {45, -104}, {32, -96}, {24, -88}},
+            {{52, -6}, {46, 4}, {41, 16}, {36, 26}},
+            {{23, 37}, {12, 44}, {2, 34}, {-8, 29}},
+            {{44, 78}, {33, 86}, {27, 100}, {21, 110}},
+            {{-12, -71}, {-24, -64}, {-34, -58}},
+            {{-15, 18}, {-24, 24}, {-31, 27}}
+        };
+
+        private GlobePanel(List<Animal> animals, boolean darkMode) {
+            this.animals = new ArrayList<>(animals);
+            this.darkMode = darkMode;
+            this.rotationY = 0.35;
+            this.zoom = 1.0;
+
+            setOpaque(true);
+            setBackground(darkMode ? new Color(17, 22, 30) : new Color(239, 244, 252));
+
+            spinTimer = new Timer(30, e -> {
+                rotationY += 0.008;
+                repaint();
+            });
+            spinTimer.start();
+
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    lastMouseX = e.getX();
+                }
+            });
+
+            addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+                @Override
+                public void mouseDragged(MouseEvent e) {
+                    int dx = e.getX() - lastMouseX;
+                    rotationY += dx * 0.01;
+                    lastMouseX = e.getX();
+                    repaint();
+                }
+            });
+
+            addMouseWheelListener(e -> adjustZoom(-e.getPreciseWheelRotation() * 0.06));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int width = getWidth();
+            int height = getHeight();
+            int baseRadius = Math.max(90, Math.min(width, height) / 2 - 48);
+            int radius = (int) Math.round(baseRadius * zoom);
+            int cx = width / 2;
+            int cy = height / 2 + 8;
+
+            drawBackdrop(g2, width, height);
+            drawGlobe(g2, cx, cy, radius);
+            drawAnimals(g2, cx, cy, radius);
+
+            g2.dispose();
+        }
+
+        private void drawBackdrop(Graphics2D g2, int width, int height) {
+            Color top = darkMode ? new Color(28, 36, 49) : new Color(212, 226, 246);
+            Color bottom = darkMode ? new Color(12, 16, 22) : new Color(244, 249, 255);
+            g2.setPaint(new GradientPaint(0, 0, top, 0, height, bottom));
+            g2.fillRect(0, 0, width, height);
+        }
+
+        private void drawGlobe(Graphics2D g2, int cx, int cy, int radius) {
+            Color oceanA = darkMode ? new Color(38, 72, 117) : new Color(112, 161, 224);
+            Color oceanB = darkMode ? new Color(19, 41, 74) : new Color(66, 118, 191);
+
+            g2.setPaint(new GradientPaint(cx - radius, cy - radius, oceanA, cx + radius, cy + radius, oceanB));
+            g2.fillOval(cx - radius, cy - radius, radius * 2, radius * 2);
+
+            drawContinents(g2, cx, cy, radius);
+            drawCountryStrokes(g2, cx, cy, radius);
+
+            g2.setColor(darkMode ? new Color(184, 205, 236, 140) : new Color(255, 255, 255, 170));
+            g2.fillOval(cx - (int) (radius * 0.62), cy - (int) (radius * 0.75), (int) (radius * 0.58), (int) (radius * 0.42));
+
+            g2.setColor(darkMode ? new Color(162, 196, 239, 120) : new Color(255, 255, 255, 140));
+            g2.drawOval(cx - radius, cy - radius, radius * 2, radius * 2);
+
+            g2.setColor(darkMode ? new Color(129, 157, 193, 60) : new Color(79, 119, 173, 70));
+            for (int i = -2; i <= 2; i++) {
+                int y = cy + (int) (i * radius * 0.32);
+                int w = (int) (radius * 2.0 * Math.cos(Math.abs(i) * 0.28));
+                g2.drawOval(cx - w / 2, y - (int) (radius * 0.15), w, (int) (radius * 0.30));
+            }
+        }
+
+        private void drawContinents(Graphics2D g2, int cx, int cy, int radius) {
+            g2.setColor(darkMode ? new Color(78, 148, 98, 188) : new Color(108, 168, 106, 202));
+
+            for (double[][] shape : CONTINENT_SHAPES) {
+                List<Projection> projected = new ArrayList<>();
+                for (double[] point : shape) {
+                    Projection p = project(point[0], point[1], cx, cy, radius);
+                    if (p != null) {
+                        projected.add(p);
+                    }
+                }
+
+                if (projected.size() < 3) {
+                    continue;
+                }
+
+                int[] xs = new int[projected.size()];
+                int[] ys = new int[projected.size()];
+                for (int i = 0; i < projected.size(); i++) {
+                    xs[i] = projected.get(i).x;
+                    ys[i] = projected.get(i).y;
+                }
+
+                g2.fillPolygon(xs, ys, projected.size());
+                g2.setColor(darkMode ? new Color(39, 96, 62, 210) : new Color(70, 124, 74, 220));
+                g2.drawPolygon(xs, ys, projected.size());
+                g2.setColor(darkMode ? new Color(78, 148, 98, 188) : new Color(108, 168, 106, 202));
+            }
+        }
+
+        private void drawCountryStrokes(Graphics2D g2, int cx, int cy, int radius) {
+            g2.setColor(darkMode ? new Color(215, 232, 181, 145) : new Color(240, 251, 228, 164));
+            for (double[][] line : COUNTRY_STROKES) {
+                Projection prev = null;
+                for (double[] point : line) {
+                    Projection current = project(point[0], point[1], cx, cy, radius);
+                    if (prev != null && current != null) {
+                        g2.drawLine(prev.x, prev.y, current.x, current.y);
+                    }
+                    prev = current;
+                }
+            }
+        }
+
+        private Projection project(double latitude, double longitude, int cx, int cy, int radius) {
+            double latRad = Math.toRadians(latitude);
+            double lonRad = Math.toRadians(longitude);
+
+            double x = Math.cos(latRad) * Math.cos(lonRad);
+            double y = Math.sin(latRad);
+            double z = Math.cos(latRad) * Math.sin(lonRad);
+
+            double sinR = Math.sin(rotationY);
+            double cosR = Math.cos(rotationY);
+            double rx = x * cosR + z * sinR;
+            double rz = -x * sinR + z * cosR;
+
+            if (rz <= -0.22) {
+                return null;
+            }
+
+            int px = cx + (int) (rx * radius * 0.94);
+            int py = cy - (int) (y * radius * 0.94);
+            return new Projection(px, py, rz);
+        }
+
+        private void drawAnimals(Graphics2D g2, int cx, int cy, int radius) {
+            List<ProjectedPoint> points = new ArrayList<>();
+
+            for (Animal animal : animals) {
+                Projection p = project(animal.getLatitude(), animal.getLongitude(), cx, cy, radius);
+                if (p != null) {
+                    double depth = (p.z + 1.0) / 2.0;
+                    points.add(new ProjectedPoint(p.x, p.y, depth, animal));
+                }
+            }
+
+            Collections.sort(points, Comparator.comparingDouble(p -> p.depth));
+
+            for (ProjectedPoint point : points) {
+                int dotSize = 5 + (int) Math.round(4 * point.depth);
+                Color dotColor = colorForAnimal(point.animal.getAnimalType(), point.depth);
+
+                g2.setColor(new Color(0, 0, 0, 95));
+                g2.fillOval(point.x + 1, point.y + 1, dotSize, dotSize);
+
+                g2.setColor(dotColor);
+                g2.fillOval(point.x, point.y, dotSize, dotSize);
+
+                String label = point.animal.getAnimalType();
+                if (label.length() > 10) {
+                    label = label.substring(0, 10);
+                }
+
+                g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
+                g2.setColor(darkMode ? new Color(236, 242, 250, 220) : new Color(29, 44, 68, 220));
+                g2.drawString(label, point.x + dotSize + 3, point.y + dotSize);
+            }
+
+            g2.setColor(darkMode ? new Color(226, 233, 245) : new Color(30, 49, 73));
+            g2.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            g2.drawString("Observations shown: " + points.size(), 12, getHeight() - 14);
+            g2.drawString("Zoom: " + Math.round(zoom * 100) + "%", 160, getHeight() - 14);
+        }
+
+        private void adjustZoom(double delta) {
+            zoom = Math.max(0.65, Math.min(1.95, zoom + delta));
+            repaint();
+        }
+
+        private void resetZoom() {
+            zoom = 1.0;
+            repaint();
+        }
+
+        private void stopAnimation() {
+            spinTimer.stop();
+        }
+
+        private Color colorForAnimal(String animalType, double depth) {
+            int hash = animalType == null ? 0 : Math.abs(animalType.hashCode());
+            float hue = (hash % 360) / 360.0f;
+            float saturation = 0.72f;
+            float brightness = (float) (0.62 + depth * 0.32);
+            return Color.getHSBColor(hue, saturation, Math.min(1.0f, brightness));
+        }
+
+        private static final class ProjectedPoint {
+            private final int x;
+            private final int y;
+            private final double depth;
+            private final Animal animal;
+
+            private ProjectedPoint(int x, int y, double depth, Animal animal) {
+                this.x = x;
+                this.y = y;
+                this.depth = depth;
+                this.animal = animal;
+            }
+        }
+
+        private static final class Projection {
+            private final int x;
+            private final int y;
+            private final double z;
+
+            private Projection(int x, int y, double z) {
+                this.x = x;
+                this.y = y;
+                this.z = z;
+            }
         }
     }
 
